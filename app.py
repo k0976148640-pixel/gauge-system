@@ -43,7 +43,7 @@ except Exception as e:
 # --- i18n 多語言字典 ---
 TRANSLATIONS = {
     'zh': {
-        'title': "☁️ 雲端量具借出系統",
+        'title': "☁️  量具借出系統",
         'role_select': "請選擇您的身份",
         'role_user': "使用者 (操作)",
         'role_admin': "管理員 (後台)",
@@ -331,4 +331,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
