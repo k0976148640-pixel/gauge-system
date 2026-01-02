@@ -329,7 +329,7 @@ def main():
     elif role == t['role_admin']:
         st.header("Backend")
         password = st.sidebar.text_input(t['password'], type="password")
-        if password == "admin123":
+        if password == "0000":
             # 新增 Verification 分頁
             tab1, tab_verify, tab2, tab3, tab4 = st.tabs(
                 [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_users'], t['admin_tab_gauges'],
