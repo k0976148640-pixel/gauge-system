@@ -175,34 +175,38 @@ def delete_gauge(gauge_id):
 
 def update_status(gauge_id, action, user, note=""):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 🚀 終極優化 1：直接從快取的表格算出行號，省下 1 次搜尋連線！
+    df = get_gauges()
     try:
-        cell = ws_gauges.find(gauge_id)
-        row_idx = cell.row
+        # DataFrame index 從 0 開始，Google Sheet 第一列是標題，所以 + 2
+        idx = df[df['id'] == gauge_id].index[0]
+        row_idx = int(idx) + 2
     except:
         return
 
+    # 🚀 終極優化 2：把 4 次獨立更新，合併成「1 次」範圍更新！(省下 3 次連線)
     if action == 'borrow':
-        ws_gauges.update_cell(row_idx, 4, '已借出')
-        ws_gauges.update_cell(row_idx, 5, user)
-        ws_gauges.update_cell(row_idx, 6, now_str)
-        ws_gauges.update_cell(row_idx, 7, '')
+        # D 到 G 欄：狀態、使用者、時間、備註
+        ws_gauges.update(values=[['已借出', user, now_str, '']], range_name=f'D{row_idx}:G{row_idx}')
         log_action = "借出"
 
     elif action == 'return_request':
-        ws_gauges.update_cell(row_idx, 4, '待確認')
+        # 申請歸還只要改 D 欄 (status)
+        ws_gauges.update(values=[['待確認']], range_name=f'D{row_idx}')
         log_action = "申請歸還"
 
     elif action == 'confirm_return':
-        ws_gauges.update_cell(row_idx, 4, '可借出')
-        ws_gauges.update_cell(row_idx, 5, '')
-        ws_gauges.update_cell(row_idx, 6, '')
-        ws_gauges.update_cell(row_idx, 7, note)
+        # D 到 G 欄
+        ws_gauges.update(values=[['可借出', '', '', note]], range_name=f'D{row_idx}:G{row_idx}')
         log_action = f"歸還驗收 ({note})" if note else "歸還驗收"
 
+    # 寫入歷史紀錄 (1 次連線)
     ws_logs.append_row([gauge_id, log_action, user, now_str])
 
-    st.cache_data.clear()  # 🧹 清除快取，確保畫面資料是最新的！
-
+    # 🚀 終極優化 3：精準清除快取，不要去動「users」名單 (省下 1 次連線)
+    get_gauges.clear()
+    get_logs.clear()
 
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
