@@ -104,23 +104,25 @@ TRANSLATIONS = {
 }
 
 
-# --- 1. 資料庫操作函數 ---
+# --- 1. 資料庫操作函數 (已加入快取優化) ---
 
+@st.cache_data(ttl=30)
 def get_gauges():
     data = ws_gauges.get_all_records()
-    # 確保回傳所有欄位，包含新的 note
     cols = ['id', 'category', 'spec', 'status', 'current_user', 'borrow_time', 'note']
     if not data:
         return pd.DataFrame(columns=cols)
     return pd.DataFrame(data)
 
 
+@st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
     return pd.DataFrame(data)
 
 
+@st.cache_data(ttl=30)
 def get_logs():
     data = ws_logs.get_all_records()
     if not data: return pd.DataFrame(columns=['gauge_id', 'action', 'user', 'timestamp'])
@@ -136,6 +138,7 @@ def add_user(name):
     except:
         pass
     ws_users.append_row([name])
+    st.cache_data.clear()  # 🧹 清除快取
     return True
 
 
@@ -143,6 +146,7 @@ def delete_user(name):
     try:
         cell = ws_users.find(name)
         ws_users.delete_rows(cell.row)
+        st.cache_data.clear()  # 🧹 清除快取
         return True
     except:
         return False
@@ -154,8 +158,8 @@ def add_gauge(gauge_id, category, spec):
         if cell: return False
     except:
         pass
-    # id(1), category(2), spec(3), status(4), current_user(5), borrow_time(6), note(7)
     ws_gauges.append_row([gauge_id, category, spec, '可借出', '', '', ''])
+    st.cache_data.clear()  # 🧹 清除快取
     return True
 
 
@@ -163,6 +167,7 @@ def delete_gauge(gauge_id):
     try:
         cell = ws_gauges.find(gauge_id)
         ws_gauges.delete_rows(cell.row)
+        st.cache_data.clear()  # 🧹 清除快取
         return True
     except:
         return False
@@ -176,31 +181,27 @@ def update_status(gauge_id, action, user, note=""):
     except:
         return
 
-    # 欄位對應: id(1), category(2), spec(3), status(4), current_user(5), borrow_time(6), note(7)
-
     if action == 'borrow':
-        # 借出：狀態變更，記錄使用者與時間，清空備註
         ws_gauges.update_cell(row_idx, 4, '已借出')
         ws_gauges.update_cell(row_idx, 5, user)
         ws_gauges.update_cell(row_idx, 6, now_str)
-        ws_gauges.update_cell(row_idx, 7, '')  # 清空舊備註
+        ws_gauges.update_cell(row_idx, 7, '')
         log_action = "借出"
 
     elif action == 'return_request':
-        # 申請歸還：狀態變更為待確認，使用者與時間暫時保留(方便管理員查看)
         ws_gauges.update_cell(row_idx, 4, '待確認')
         log_action = "申請歸還"
 
     elif action == 'confirm_return':
-        # 確認入庫：狀態變更為可借出，清空使用者與時間，寫入備註
         ws_gauges.update_cell(row_idx, 4, '可借出')
         ws_gauges.update_cell(row_idx, 5, '')
         ws_gauges.update_cell(row_idx, 6, '')
         ws_gauges.update_cell(row_idx, 7, note)
         log_action = f"歸還驗收 ({note})" if note else "歸還驗收"
 
-    # 寫入 Log
     ws_logs.append_row([gauge_id, log_action, user, now_str])
+
+    st.cache_data.clear()  # 🧹 清除快取，確保畫面資料是最新的！
 
 
 def calculate_days(borrow_time_str):
@@ -244,7 +245,6 @@ def main():
                     categories = [t['all_options']] + list(df_gauges['category'].unique())
                     selected_cat = st.selectbox(t['category_filter'], categories)
 
-                    # 只顯示 "可借出" 的，不顯示 "待確認" 的
                     available = df_gauges[df_gauges['status'] == '可借出']
                     if selected_cat != t['all_options']:
                         available = available[available['category'] == selected_cat]
@@ -263,22 +263,18 @@ def main():
                 else:
                     st.warning(t['msg_no_data'])
 
-            # === 歸還 (含篩選功能) ===
+            # === 歸還 ===
             with tab_return:
-                # 篩選出 "已借出" 或 "待確認" (使用者可以看到自己還在審核中的項目)
-                df_gauges = get_gauges()  # Refresh
+                df_gauges = get_gauges()
 
-                # 在這裡增加人員篩選器
                 borrowers = [t['all_options']] + list(
                     df_gauges[df_gauges['status'].isin(['已借出', '待確認'])]['current_user'].unique())
-                # 移除空值
                 borrowers = [x for x in borrowers if x]
 
                 col_filter1, col_filter2 = st.columns(2)
                 with col_filter1:
                     selected_user_filter = st.selectbox(t['user_filter'], borrowers)
 
-                # 進行資料篩選
                 borrowed = df_gauges[df_gauges['status'].isin(['已借出', '待確認'])]
                 if selected_user_filter != t['all_options']:
                     borrowed = borrowed[borrowed['current_user'] == selected_user_filter]
@@ -290,20 +286,19 @@ def main():
 
                         col1, col2 = st.columns([4, 1])
                         with col1:
-                            # 顯示狀態
                             status_text = f" ({t['status_pending']})" if row['status'] == '待確認' else ""
                             info_text = f"📍 {row['id']} | {row['category']} [{row['spec']}] - 👤 {row['current_user']} ({days} {t['days_unit']}){status_text}"
 
                             if row['status'] == '待確認':
-                                st.warning(info_text + " ⏳")  # 黃色表示等待中
+                                st.warning(info_text + " ⏳")
                             elif is_owner:
-                                st.success(info_text)  # 綠色表示可歸還
+                                st.success(info_text)
                             else:
-                                st.error(info_text)  # 紅色表示別人的
+                                st.error(info_text)
 
                         with col2:
                             if row['status'] == '待確認':
-                                st.write("⏳ Wait Admin")  # 等待管理員
+                                st.write("⏳ Wait Admin")
                             elif is_owner:
                                 if st.button(t['btn_return_request'], key=f"ret_req_{row['id']}"):
                                     update_status(row['id'], 'return_request', current_user_name)
@@ -329,8 +324,7 @@ def main():
     elif role == t['role_admin']:
         st.header("Backend")
         password = st.sidebar.text_input(t['password'], type="password")
-        if password == "0000":
-            # 新增 Verification 分頁
+        if password == "0000":  # 你設定的密碼
             tab1, tab_verify, tab2, tab3, tab4 = st.tabs(
                 [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_users'], t['admin_tab_gauges'],
                  t['admin_tab_logs']])
@@ -346,30 +340,26 @@ def main():
                 else:
                     st.success("目前無借出項目")
 
-            # 2. 歸還驗收 (新功能)
+            # 2. 歸還驗收
             with tab_verify:
                 st.subheader(t['admin_tab_verify'])
                 df_gauges = get_gauges()
-                # 篩選出 "待確認" 的項目
                 pending_items = df_gauges[df_gauges['status'] == '待確認']
 
                 if not pending_items.empty:
                     for index, row in pending_items.iterrows():
                         with st.container():
-                            # 使用邊框框起來，每一筆一個區塊
                             st.markdown(f"### 📦 {row['id']} - {row['category']}")
                             c1, c2, c3 = st.columns([2, 2, 1])
                             with c1:
                                 st.write(f"**規格:** {row['spec']}")
                                 st.write(f"**歸還人:** {row['current_user']}")
                             with c2:
-                                # 備註輸入框
                                 note = st.text_input(t['label_note'], placeholder=t['ph_note'], key=f"note_{row['id']}")
                             with c3:
-                                st.write("")  # 排版用
+                                st.write("");
                                 st.write("")
                                 if st.button(t['btn_confirm_return'], key=f"confirm_{row['id']}"):
-                                    # 執行確認入庫
                                     update_status(row['id'], 'confirm_return', row['current_user'], note)
                                     st.success("已確認入庫！")
                                     st.rerun()
@@ -401,7 +391,8 @@ def main():
                     if st.button("Add Gauge"):
                         if new_id and new_cat:
                             if add_gauge(new_id, new_cat, new_spec):
-                                st.success("Added"); st.rerun()
+                                st.success("Added");
+                                st.rerun()
                             else:
                                 st.error("ID Exists")
                 with col_del:
