@@ -10,7 +10,6 @@ SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 SHEET_NAME = 'gauge_db'
 JSON_FILE = 'service_account.json'
 
-
 @st.cache_resource
 def connect_google_sheet():
     if os.path.exists(JSON_FILE):
@@ -23,15 +22,19 @@ def connect_google_sheet():
     sheet = client.open(SHEET_NAME)
     return sheet
 
-
+# 安全氣囊：捕捉超速錯誤
 try:
     sh = connect_google_sheet()
     ws_gauges = sh.worksheet('gauges')
     ws_logs = sh.worksheet('logs')
     ws_users = sh.worksheet('users')
 except Exception as e:
-    st.error(f"連線失敗！\n錯誤訊息: {e}")
-    st.stop()
+    if "429" in str(e):
+        st.warning("⏳ 點擊速度太快囉！Google 伺服器正在喘氣，請等待 15 秒後再重新整理網頁。")
+        st.stop()
+    else:
+        st.error(f"連線失敗！\n錯誤訊息: {e}")
+        st.stop()
 
 # --- i18n 多語言字典 ---
 TRANSLATIONS = {
@@ -103,8 +106,7 @@ TRANSLATIONS = {
     }
 }
 
-
-# --- 1. 資料庫操作函數 (已加入快取優化) ---
+# --- 1. 資料庫操作函數 (已加入快取與效能優化) ---
 
 @st.cache_data(ttl=30)
 def get_gauges():
@@ -114,13 +116,11 @@ def get_gauges():
         return pd.DataFrame(columns=cols)
     return pd.DataFrame(data)
 
-
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
     return pd.DataFrame(data)
-
 
 @st.cache_data(ttl=30)
 def get_logs():
@@ -130,7 +130,6 @@ def get_logs():
     if not df.empty: df = df.iloc[::-1]
     return df
 
-
 def add_user(name):
     try:
         cell = ws_users.find(name)
@@ -138,19 +137,17 @@ def add_user(name):
     except:
         pass
     ws_users.append_row([name])
-    st.cache_data.clear()  # 🧹 清除快取
+    st.cache_data.clear()
     return True
-
 
 def delete_user(name):
     try:
         cell = ws_users.find(name)
         ws_users.delete_rows(cell.row)
-        st.cache_data.clear()  # 🧹 清除快取
+        st.cache_data.clear()
         return True
     except:
         return False
-
 
 def add_gauge(gauge_id, category, spec):
     try:
@@ -159,54 +156,42 @@ def add_gauge(gauge_id, category, spec):
     except:
         pass
     ws_gauges.append_row([gauge_id, category, spec, '可借出', '', '', ''])
-    st.cache_data.clear()  # 🧹 清除快取
+    st.cache_data.clear()
     return True
-
 
 def delete_gauge(gauge_id):
     try:
         cell = ws_gauges.find(gauge_id)
         ws_gauges.delete_rows(cell.row)
-        st.cache_data.clear()  # 🧹 清除快取
+        st.cache_data.clear()
         return True
     except:
         return False
 
-
 def update_status(gauge_id, action, user, note=""):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 🚀 終極優化 1：直接從快取的表格算出行號，省下 1 次搜尋連線！
     df = get_gauges()
     try:
-        # DataFrame index 從 0 開始，Google Sheet 第一列是標題，所以 + 2
         idx = df[df['id'] == gauge_id].index[0]
         row_idx = int(idx) + 2
     except:
         return
 
-    # 🚀 終極優化 2：把 4 次獨立更新，合併成「1 次」範圍更新！(省下 3 次連線)
+    # 打包更新 (Batch Update) 減少 Google API 請求次數
     if action == 'borrow':
-        # D 到 G 欄：狀態、使用者、時間、備註
-        ws_gauges.update(values=[['已借出', user, now_str, '']], range_name=f'D{row_idx}:G{row_idx}')
+        ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['已借出', user, now_str, '']])
         log_action = "借出"
 
     elif action == 'return_request':
-        # 申請歸還只要改 D 欄 (status)
-        ws_gauges.update(values=[['待確認']], range_name=f'D{row_idx}')
+        ws_gauges.update(range_name=f'D{row_idx}', values=[['待確認']])
         log_action = "申請歸還"
 
     elif action == 'confirm_return':
-        # D 到 G 欄
-        ws_gauges.update(values=[['可借出', '', '', note]], range_name=f'D{row_idx}:G{row_idx}')
+        ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', note]])
         log_action = f"歸還驗收 ({note})" if note else "歸還驗收"
 
-    # 寫入歷史紀錄 (1 次連線)
     ws_logs.append_row([gauge_id, log_action, user, now_str])
-
-    # 🚀 終極優化 3：精準清除快取，不要去動「users」名單 (省下 1 次連線)
-    get_gauges.clear()
-    get_logs.clear()
+    st.cache_data.clear()
 
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
@@ -216,7 +201,6 @@ def calculate_days(borrow_time_str):
         return delta.days
     except:
         return 0
-
 
 # --- 2. 應用程式介面 (UI) ---
 
@@ -243,7 +227,7 @@ def main():
             tab_borrow, tab_return, tab_status = st.tabs([t['tab_borrow'], t['tab_return'], t['tab_status']])
             df_gauges = get_gauges()
 
-            # === 借出 ===
+            # === 借出 (直覺式：每項旁邊獨立按鈕) ===
             with tab_borrow:
                 if not df_gauges.empty:
                     categories = [t['all_options']] + list(df_gauges['category'].unique())
@@ -266,6 +250,7 @@ def main():
                                 st.rerun()
                 else:
                     st.warning(t['msg_no_data'])
+
             # === 歸還 ===
             with tab_return:
                 df_gauges = get_gauges()
@@ -360,8 +345,7 @@ def main():
                             with c2:
                                 note = st.text_input(t['label_note'], placeholder=t['ph_note'], key=f"note_{row['id']}")
                             with c3:
-                                st.write("");
-                                st.write("")
+                                st.write(""); st.write("")
                                 if st.button(t['btn_confirm_return'], key=f"confirm_{row['id']}"):
                                     update_status(row['id'], 'confirm_return', row['current_user'], note)
                                     st.success("已確認入庫！")
@@ -394,8 +378,7 @@ def main():
                     if st.button("Add Gauge"):
                         if new_id and new_cat:
                             if add_gauge(new_id, new_cat, new_spec):
-                                st.success("Added");
-                                st.rerun()
+                                st.success("Added"); st.rerun()
                             else:
                                 st.error("ID Exists")
                 with col_del:
@@ -410,7 +393,6 @@ def main():
             # 5. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
-
 
 if __name__ == "__main__":
     main()
