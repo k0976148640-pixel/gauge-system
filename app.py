@@ -256,29 +256,14 @@ def main():
                     available = pd.DataFrame()
 
                 if not available.empty:
-                    st.write("請勾選您要借出的量具：")
-                    # 準備一個清單來裝打勾的項目
-                    selected_to_borrow = []
-
                     for index, row in available.iterrows():
                         col1, col2 = st.columns([4, 1])
                         with col1:
                             st.info(f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']}")
                         with col2:
-                            # 變成 Checkbox (核取方塊)
-                            if st.checkbox("選取", key=f"chk_{row['id']}"):
-                                selected_to_borrow.append(row['id'])
-
-                    # 如果有勾選東西，才顯示最下方的「確認借出」大按鈕
-                    if selected_to_borrow:
-                        st.divider()  # 畫一條分隔線
-                        if st.button(f"📥 確認借出選取的 {len(selected_to_borrow)} 項量具", type="primary",
-                                     use_container_width=True):
-                            # 一次把清單裡的項目全部更新
-                            for gid in selected_to_borrow:
-                                update_status(gid, 'borrow', current_user_name)
-                            st.success(f"成功借出 {len(selected_to_borrow)} 項量具！")
-                            st.rerun()
+                            if st.button(t['btn_borrow'], key=f"borrow_{row['id']}"):
+                                update_status(row['id'], 'borrow', current_user_name)
+                                st.rerun()
                 else:
                     st.warning(t['msg_no_data'])
             # === 歸還 ===
