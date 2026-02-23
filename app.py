@@ -62,6 +62,7 @@ TRANSLATIONS = {
         'all_options': "全部顯示",
         'admin_tab_status': "📊 現況",
         'admin_tab_verify': "✅ 歸還驗收",
+        'admin_tab_repair': "🔧 待修回",  # 新增：待修回分頁
         'admin_tab_users': "👥 人員",
         'admin_tab_gauges': "➕ 量具",
         'admin_tab_logs': "📝 紀錄",
@@ -96,6 +97,7 @@ TRANSLATIONS = {
         'all_options': "Show All",
         'admin_tab_status': "📊 Dashboard",
         'admin_tab_verify': "✅ Verification",
+        'admin_tab_repair': "🔧 Repairing",  # 新增：待修回分頁
         'admin_tab_users': "👥 Users",
         'admin_tab_gauges': "➕ Gauges",
         'admin_tab_logs': "📝 Logs",
@@ -208,6 +210,10 @@ def update_status(gauge_id, action, user, note=""):
     elif action == 'scrap':
         ws_gauges.delete_rows(row_idx)
         log_action = f"報廢移除 ({note})" if note else "報廢移除"
+    # 👇 新增：修復完成的動作
+    elif action == 'repair_done':
+        ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', note]])
+        log_action = f"修復完成 ({note})" if note else "修復完成"
 
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
@@ -398,8 +404,10 @@ def main():
         st.header("Backend")
         password = st.sidebar.text_input(t['password'], type="password")
         if password == "0000":  # 你的密碼
-            tab1, tab_verify, tab2, tab3, tab4 = st.tabs(
-                [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_users'], t['admin_tab_gauges'],
+            # 👇 新增了 tab_repair 分頁
+            tab1, tab_verify, tab_repair, tab2, tab3, tab4 = st.tabs(
+                [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_repair'], t['admin_tab_users'],
+                 t['admin_tab_gauges'],
                  t['admin_tab_logs']])
 
             # 1. 現況
@@ -453,7 +461,39 @@ def main():
                 else:
                     st.info("目前沒有待驗收的歸還申請。")
 
-            # 3. 人員
+            # 3. 待修回 (新功能專區)
+            with tab_repair:
+                st.subheader(t['admin_tab_repair'])
+                df_gauges = get_gauges()
+                # 篩選出所有狀態為「待修」的量具
+                repair_items = df_gauges[df_gauges['status'] == '待修']
+
+                if not repair_items.empty:
+                    for index, row in repair_items.iterrows():
+                        with st.container():
+                            st.markdown(f"### 📦 {row['id']} - {row['category']}")
+
+                            c1, c2, c3 = st.columns([2, 2, 2])
+                            with c1:
+                                st.write(f"**規格:** {row['spec']}")
+                                # 顯示當時送修寫下的原因
+                                st.write(f"**送修前備註:** {row['note']}")
+                            with c2:
+                                # 品保修復後可以寫下新的備註 (例如：已更換螺絲)
+                                repair_note = st.text_input("修復備註", placeholder="例: 已更換零件...",
+                                                            key=f"rep_note_{row['id']}")
+                            with c3:
+                                st.write("")  # 排版對齊
+                                if st.button("✅ 修復完成", key=f"repdn_{row['id']}", use_container_width=True):
+                                    # 點擊後，狀態切換回「可借出」，由管理員/品保執行
+                                    update_status(row['id'], 'repair_done', '管理員', repair_note)
+                                    st.success("已恢復為可借出狀態！")
+                                    st.rerun()
+                            st.divider()
+                else:
+                    st.info("目前沒有待修的量具。")
+
+            # 4. 人員
             with tab2:
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
@@ -466,7 +506,7 @@ def main():
                         del_user = st.selectbox("Delete", df_users['name'].astype(str))
                         if st.button("Delete"): delete_user(del_user); st.success("Deleted"); st.rerun()
 
-            # 4. 量具
+            # 5. 量具
             with tab3:
                 col_add, col_del = st.columns(2)
                 with col_add:
@@ -490,7 +530,7 @@ def main():
                         real_id = selection.split(" ")[0]
                         if st.button("Confirm Delete"): delete_gauge(real_id); st.success("Deleted"); st.rerun()
 
-            # 5. 紀錄
+            # 6. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
 
