@@ -293,12 +293,20 @@ def main():
                     categories = [t['all_options']] + list(df_gauges['category'].unique())
                     selected_cat = st.selectbox(t['category_filter'], categories)
 
+                    # 1. 抓出「可借出」的項目
                     available = df_gauges[df_gauges['status'] == '可借出']
+                    # 2. 抓出「待確認 (品保還沒驗收)」的項目
+                    pending = df_gauges[df_gauges['status'] == '待確認']
+
                     if selected_cat != t['all_options']:
                         available = available[available['category'] == selected_cat]
+                        pending = pending[pending['category'] == selected_cat]
                 else:
                     available = pd.DataFrame()
+                    pending = pd.DataFrame()
 
+                # --- 顯示正常可借出的 ---
+                st.markdown("#### ✅ 庫存量具")
                 if not available.empty:
                     for index, row in available.iterrows():
                         col1, col2 = st.columns([4, 1])
@@ -309,8 +317,28 @@ def main():
                                 update_status(row['id'], 'borrow', current_user_name)
                                 st.rerun()
                 else:
-                    st.warning(t['msg_no_data'])
+                    st.write("此分類目前無可借出量具。")
 
+                st.divider()  # 畫一條分隔線
+
+                # --- 顯示待驗收但可接手的 ---
+                st.markdown("#### ⏳ 待品保驗收 (若急用可直接接手)")
+                if not pending.empty:
+                    for index, row in pending.iterrows():
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            # 顯示黃色的警告框，並標示上一位是誰
+                            st.warning(
+                                f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']} (原借用人: {row['current_user']})")
+                        with col2:
+                            # 按鈕名稱改為「急件接手」
+                            if st.button("急件接手", key=f"takeover_{row['id']}",
+                                         help="直接接手會將此量具轉移到您名下"):
+                                # 呼叫接手動作，並把上一位使用者的名字當作 note 傳過去記錄
+                                update_status(row['id'], 'takeover', current_user_name, note=row['current_user'])
+                                st.rerun()
+                else:
+                    st.write("目前無待驗收項目。")
             # === 歸還 ===
             with tab_return:
                 df_gauges = get_gauges()
