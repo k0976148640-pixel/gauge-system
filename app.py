@@ -202,9 +202,16 @@ def update_status(gauge_id, action, user, note=""):
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', note]])
         log_action = f"歸還驗收 ({note})" if note else "歸還驗收"
 
+    # 👇👇👇 這是新加入的「急件接手」邏輯 👇👇👇
+    elif action == 'takeover':
+        # 狀態變為「已借出」，使用者變成新的人(user)，更新時間
+        ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['已借出', user, now_str, '']])
+        # note 裡面會傳入上一位持有者的名字，方便記錄
+        log_action = f"急件接手 (原持有人: {note})"
+    # 👆👆👆 ================================= 👆👆👆
+
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
-
 
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
