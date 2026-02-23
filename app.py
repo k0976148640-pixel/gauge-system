@@ -211,9 +211,7 @@ def update_status(gauge_id, action, user, note=""):
         ws_gauges.delete_rows(row_idx)
         log_action = f"報廢移除 ({note})" if note else "報廢移除"
     elif action == 'repair_done':
-        # 👇 這裡改了！總表的備註欄寫入空字串 ''，保持乾淨
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', '']])
-        # 但是 logs 依然會把 note 記錄下來
         log_action = f"修復完成 ({note})" if note else "修復完成"
 
     ws_logs.append_row([gauge_id, log_action, user, now_str])
@@ -421,7 +419,7 @@ def main():
                 else:
                     st.success("目前無借出項目")
 
-            # 2. 歸還驗收 (三按鈕版)
+            # 2. 歸還驗收 (彈出視窗防呆版)
             with tab_verify:
                 st.subheader(t['admin_tab_verify'])
                 df_gauges = get_gauges()
@@ -441,22 +439,31 @@ def main():
                             with c3:
                                 st.write("")
                                 btn_c1, btn_c2, btn_c3 = st.columns(3)
+
+                                # 第一顆按鈕：入庫 (正常操作，直接按)
                                 with btn_c1:
                                     if st.button("✅ 入庫", key=f"ok_{row['id']}", use_container_width=True):
                                         update_status(row['id'], 'confirm_return', row['current_user'], note)
                                         st.success("已入庫！")
                                         st.rerun()
+
+                                # 第二顆按鈕：送修 (使用 Popover 彈出確認視窗)
                                 with btn_c2:
-                                    if st.button("🔧 送修", key=f"rep_{row['id']}", use_container_width=True):
-                                        update_status(row['id'], 'repair', row['current_user'], note)
-                                        st.warning("已轉為待修狀態！")
-                                        st.rerun()
+                                    with st.popover("🔧 送修", use_container_width=True):
+                                        st.write("確定要將此量具轉為 **待修** 狀態嗎？")
+                                        if st.button("確認送修", key=f"conf_rep_{row['id']}", type="primary",
+                                                     use_container_width=True):
+                                            update_status(row['id'], 'repair', row['current_user'], note)
+                                            st.rerun()
+
+                                # 第三顆按鈕：報廢 (使用 Popover 彈出確認視窗)
                                 with btn_c3:
-                                    if st.button("🗑️ 報廢", type="primary", key=f"scr_{row['id']}",
-                                                 use_container_width=True):
-                                        update_status(row['id'], 'scrap', row['current_user'], note)
-                                        st.error("已報廢並移出總表！")
-                                        st.rerun()
+                                    with st.popover("🗑️ 報廢", use_container_width=True):
+                                        st.markdown("🚨 **非常確定要報廢嗎？**\n\n(這將會從總表中永久移除！)")
+                                        if st.button("確認執行報廢", key=f"conf_scr_{row['id']}", type="primary",
+                                                     use_container_width=True):
+                                            update_status(row['id'], 'scrap', row['current_user'], note)
+                                            st.rerun()
                             st.divider()
                 else:
                     st.info("目前沒有待驗收的歸還申請。")
