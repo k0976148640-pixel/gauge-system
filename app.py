@@ -10,6 +10,7 @@ SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 SHEET_NAME = 'gauge_db'
 JSON_FILE = 'service_account.json'
 
+
 @st.cache_resource
 def connect_google_sheet():
     if os.path.exists(JSON_FILE):
@@ -21,6 +22,7 @@ def connect_google_sheet():
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME)
     return sheet
+
 
 # 安全氣囊：捕捉超速錯誤
 try:
@@ -69,7 +71,8 @@ TRANSLATIONS = {
         'msg_no_data': "查無資料", 'msg_success_add': "新增成功", 'msg_success_del': "刪除成功",
         'label_name': "輸入姓名", 'label_id': "量具編號", 'label_cat': "分類", 'label_spec': "規格",
         'label_note': "驗收/異常備註", 'ph_note': "例如: 外觀正常、或是稍微刮傷...",
-        'days_unit': "天"
+        'days_unit': "天",
+        'font_slider': "🔍 調整字體大小"
     },
     'en': {
         'title': "☁️ Cloud Gauge System",
@@ -102,9 +105,11 @@ TRANSLATIONS = {
         'msg_no_data': "No Data", 'msg_success_add': "Added Successfully", 'msg_success_del': "Deleted Successfully",
         'label_name': "Enter Name", 'label_id': "Gauge ID", 'label_cat': "Category", 'label_spec': "Spec",
         'label_note': "Inspection Note", 'ph_note': "e.g., Looks good...",
-        'days_unit': "days"
+        'days_unit': "days",
+        'font_slider': "🔍 Adjust Font Size"
     }
 }
+
 
 # --- 1. 資料庫操作函數 (已加入快取與效能優化) ---
 
@@ -116,11 +121,13 @@ def get_gauges():
         return pd.DataFrame(columns=cols)
     return pd.DataFrame(data)
 
+
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
     return pd.DataFrame(data)
+
 
 @st.cache_data(ttl=30)
 def get_logs():
@@ -129,6 +136,7 @@ def get_logs():
     df = pd.DataFrame(data)
     if not df.empty: df = df.iloc[::-1]
     return df
+
 
 def add_user(name):
     try:
@@ -140,6 +148,7 @@ def add_user(name):
     st.cache_data.clear()
     return True
 
+
 def delete_user(name):
     try:
         cell = ws_users.find(name)
@@ -148,6 +157,7 @@ def delete_user(name):
         return True
     except:
         return False
+
 
 def add_gauge(gauge_id, category, spec):
     try:
@@ -159,6 +169,7 @@ def add_gauge(gauge_id, category, spec):
     st.cache_data.clear()
     return True
 
+
 def delete_gauge(gauge_id):
     try:
         cell = ws_gauges.find(gauge_id)
@@ -167,6 +178,7 @@ def delete_gauge(gauge_id):
         return True
     except:
         return False
+
 
 def update_status(gauge_id, action, user, note=""):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -193,6 +205,7 @@ def update_status(gauge_id, action, user, note=""):
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
 
+
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
     try:
@@ -202,15 +215,55 @@ def calculate_days(borrow_time_str):
     except:
         return 0
 
+
 # --- 2. 應用程式介面 (UI) ---
 
 def main():
     st.set_page_config(page_title="Cloud Gauge System", page_icon="☁️", layout="wide")
 
     if 'lang' not in st.session_state: st.session_state.lang = 'zh'
+
+    # 語言與字體調整放在側邊欄
     lang_opt = st.sidebar.radio("Language / 語言", ['中文', 'English'])
     st.session_state.lang = 'zh' if lang_opt == '中文' else 'en'
     t = TRANSLATIONS[st.session_state.lang]
+
+    # 字體大小拉桿
+    st.sidebar.markdown("---")
+    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=18, step=2)
+
+    # 動態注入 CSS 魔法來放大字體
+    st.markdown(f"""
+        <style>
+        /* 一般文字、提示框 */
+        p, div, span, label {{
+            font-size: {font_size}px !important;
+        }}
+
+        /* 按鈕 */
+        .stButton > button {{
+            font-size: {font_size}px !important;
+            font-weight: bold !important;
+        }}
+
+        /* 輸入框與選單 */
+        div[data-baseweb="select"] *, 
+        input[type="text"], input[type="password"] {{
+            font-size: {font_size}px !important;
+        }}
+
+        /* 頁籤 Tabs */
+        .stTabs [data-baseweb="tab-list"] button {{
+            font-size: {font_size + 2}px !important;
+            font-weight: bold !important;
+        }}
+
+        /* 資料表格 */
+        [data-testid="stDataFrame"] * {{
+            font-size: {font_size - 2}px !important;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
 
     st.title(t['title'])
     role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
@@ -345,7 +398,8 @@ def main():
                             with c2:
                                 note = st.text_input(t['label_note'], placeholder=t['ph_note'], key=f"note_{row['id']}")
                             with c3:
-                                st.write(""); st.write("")
+                                st.write("");
+                                st.write("")
                                 if st.button(t['btn_confirm_return'], key=f"confirm_{row['id']}"):
                                     update_status(row['id'], 'confirm_return', row['current_user'], note)
                                     st.success("已確認入庫！")
@@ -378,7 +432,8 @@ def main():
                     if st.button("Add Gauge"):
                         if new_id and new_cat:
                             if add_gauge(new_id, new_cat, new_spec):
-                                st.success("Added"); st.rerun()
+                                st.success("Added");
+                                st.rerun()
                             else:
                                 st.error("ID Exists")
                 with col_del:
@@ -393,6 +448,7 @@ def main():
             # 5. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
