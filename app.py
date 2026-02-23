@@ -70,7 +70,7 @@ TRANSLATIONS = {
         'col_days': "天數", 'col_note': "備註",
         'msg_no_data': "查無資料", 'msg_success_add': "新增成功", 'msg_success_del': "刪除成功",
         'label_name': "輸入姓名", 'label_id': "量具編號", 'label_cat': "分類", 'label_spec': "規格",
-        'label_note': "驗收/異常備註", 'ph_note': "例如: 外觀正常、或是稍微刮傷...",
+        'label_note': "驗收/異常備註", 'ph_note': "若送修或報廢，請填寫原因...",
         'days_unit': "天",
         'font_slider': "🔍 調整字體大小"
     },
@@ -104,7 +104,7 @@ TRANSLATIONS = {
         'col_days': "Days", 'col_note': "Note",
         'msg_no_data': "No Data", 'msg_success_add': "Added Successfully", 'msg_success_del': "Deleted Successfully",
         'label_name': "Enter Name", 'label_id': "Gauge ID", 'label_cat': "Category", 'label_spec': "Spec",
-        'label_note': "Inspection Note", 'ph_note': "e.g., Looks good...",
+        'label_note': "Inspection Note", 'ph_note': "If repair/scrap, enter reason...",
         'days_unit': "days",
         'font_slider': "🔍 Adjust Font Size"
     }
@@ -193,26 +193,27 @@ def update_status(gauge_id, action, user, note=""):
     if action == 'borrow':
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['已借出', user, now_str, '']])
         log_action = "借出"
-
     elif action == 'return_request':
         ws_gauges.update(range_name=f'D{row_idx}', values=[['待確認']])
         log_action = "申請歸還"
-
     elif action == 'confirm_return':
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', note]])
         log_action = f"歸還驗收 ({note})" if note else "歸還驗收"
-
-    # 👇👇👇 這是新加入的「急件接手」邏輯 👇👇👇
     elif action == 'takeover':
-        # 狀態變為「已借出」，使用者變成新的人(user)，更新時間
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['已借出', user, now_str, '']])
-        # note 裡面會傳入上一位持有者的名字，方便記錄
         log_action = f"急件接手 (原持有人: {note})"
-    # 👆👆👆 ================================= 👆👆👆
+    elif action == 'repair':
+        ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['待修', '', '', note]])
+        log_action = f"轉交送修 ({note})" if note else "轉交送修"
+    elif action == 'scrap':
+        ws_gauges.delete_rows(row_idx)
+        log_action = f"報廢移除 ({note})" if note else "報廢移除"
 
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
 
+
+# 恢復為：滿 24 小時才算 1 天
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
     try:
@@ -237,7 +238,7 @@ def main():
 
     # 字體大小拉桿
     st.sidebar.markdown("---")
-    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
+    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=18, step=2)
 
     # 動態注入 CSS 魔法來放大字體
     st.markdown(f"""
@@ -287,15 +288,13 @@ def main():
             tab_borrow, tab_return, tab_status = st.tabs([t['tab_borrow'], t['tab_return'], t['tab_status']])
             df_gauges = get_gauges()
 
-            # === 借出 (直覺式：每項旁邊獨立按鈕) ===
+            # === 借出分頁 (含待驗收接手功能) ===
             with tab_borrow:
                 if not df_gauges.empty:
                     categories = [t['all_options']] + list(df_gauges['category'].unique())
                     selected_cat = st.selectbox(t['category_filter'], categories)
 
-                    # 1. 抓出「可借出」的項目
                     available = df_gauges[df_gauges['status'] == '可借出']
-                    # 2. 抓出「待確認 (品保還沒驗收)」的項目
                     pending = df_gauges[df_gauges['status'] == '待確認']
 
                     if selected_cat != t['all_options']:
@@ -305,7 +304,7 @@ def main():
                     available = pd.DataFrame()
                     pending = pd.DataFrame()
 
-                # --- 顯示正常可借出的 ---
+                # 顯示正常可借出的
                 st.markdown("#### ✅ 庫存量具")
                 if not available.empty:
                     for index, row in available.iterrows():
@@ -319,26 +318,24 @@ def main():
                 else:
                     st.write("此分類目前無可借出量具。")
 
-                st.divider()  # 畫一條分隔線
+                st.divider()
 
-                # --- 顯示待驗收但可接手的 ---
+                # 顯示待驗收但可接手的
                 st.markdown("#### ⏳ 待品保驗收 (若急用可直接接手)")
                 if not pending.empty:
                     for index, row in pending.iterrows():
                         col1, col2 = st.columns([4, 1])
                         with col1:
-                            # 顯示黃色的警告框，並標示上一位是誰
                             st.warning(
                                 f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']} (原借用人: {row['current_user']})")
                         with col2:
-                            # 按鈕名稱改為「急件接手」
                             if st.button("急件接手", key=f"takeover_{row['id']}",
                                          help="直接接手會將此量具轉移到您名下"):
-                                # 呼叫接手動作，並把上一位使用者的名字當作 note 傳過去記錄
                                 update_status(row['id'], 'takeover', current_user_name, note=row['current_user'])
                                 st.rerun()
                 else:
                     st.write("目前無待驗收項目。")
+
             # === 歸還 ===
             with tab_return:
                 df_gauges = get_gauges()
@@ -400,7 +397,7 @@ def main():
     elif role == t['role_admin']:
         st.header("Backend")
         password = st.sidebar.text_input(t['password'], type="password")
-        if password == "0000":  # 你設定的密碼
+        if password == "0000":  # 你的密碼
             tab1, tab_verify, tab2, tab3, tab4 = st.tabs(
                 [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_users'], t['admin_tab_gauges'],
                  t['admin_tab_logs']])
@@ -416,7 +413,7 @@ def main():
                 else:
                     st.success("目前無借出項目")
 
-            # 2. 歸還驗收
+            # 2. 歸還驗收 (三按鈕版)
             with tab_verify:
                 st.subheader(t['admin_tab_verify'])
                 df_gauges = get_gauges()
@@ -426,19 +423,32 @@ def main():
                     for index, row in pending_items.iterrows():
                         with st.container():
                             st.markdown(f"### 📦 {row['id']} - {row['category']}")
-                            c1, c2, c3 = st.columns([2, 2, 1])
+
+                            c1, c2, c3 = st.columns([2, 2, 3])
                             with c1:
                                 st.write(f"**規格:** {row['spec']}")
                                 st.write(f"**歸還人:** {row['current_user']}")
                             with c2:
                                 note = st.text_input(t['label_note'], placeholder=t['ph_note'], key=f"note_{row['id']}")
                             with c3:
-                                st.write("");
                                 st.write("")
-                                if st.button(t['btn_confirm_return'], key=f"confirm_{row['id']}"):
-                                    update_status(row['id'], 'confirm_return', row['current_user'], note)
-                                    st.success("已確認入庫！")
-                                    st.rerun()
+                                btn_c1, btn_c2, btn_c3 = st.columns(3)
+                                with btn_c1:
+                                    if st.button("✅ 入庫", key=f"ok_{row['id']}", use_container_width=True):
+                                        update_status(row['id'], 'confirm_return', row['current_user'], note)
+                                        st.success("已入庫！")
+                                        st.rerun()
+                                with btn_c2:
+                                    if st.button("🔧 送修", key=f"rep_{row['id']}", use_container_width=True):
+                                        update_status(row['id'], 'repair', row['current_user'], note)
+                                        st.warning("已轉為待修狀態！")
+                                        st.rerun()
+                                with btn_c3:
+                                    if st.button("🗑️ 報廢", type="primary", key=f"scr_{row['id']}",
+                                                 use_container_width=True):
+                                        update_status(row['id'], 'scrap', row['current_user'], note)
+                                        st.error("已報廢並移出總表！")
+                                        st.rerun()
                             st.divider()
                 else:
                     st.info("目前沒有待驗收的歸還申請。")
