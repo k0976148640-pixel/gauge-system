@@ -237,7 +237,7 @@ def main():
 
     # 字體大小拉桿
     st.sidebar.markdown("---")
-    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=18, step=2)
+    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
 
     # 動態注入 CSS 魔法來放大字體
     st.markdown(f"""
