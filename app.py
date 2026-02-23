@@ -207,20 +207,14 @@ def calculate_days(borrow_time_str):
 def main():
     st.set_page_config(page_title="Cloud Gauge System", page_icon="☁️", layout="wide")
 
-    # 👇👇👇 從這裡開始加入這段「放大字體」的魔法指令 👇👇👇
-    st.markdown("""
-        <style>
-        /* 放大所有一般文字、按鈕、輸入框的字體 */
-        html, body, p, div, button, input, select, textarea, [class*="st-"] {
-            font-size: 18px !important; 
-        }
-        /* 如果覺得 18px 不夠大，可以改成 20px 或 22px */
-        </style>
-    """, unsafe_allow_html=True)
-    # 👆👆👆 加到這裡結束 👆👆👆
-
     if 'lang' not in st.session_state: st.session_state.lang = 'zh'
-    # ... 下面維持原本的程式碼 ...
+    lang_opt = st.sidebar.radio("Language / 語言", ['中文', 'English'])
+    st.session_state.lang = 'zh' if lang_opt == '中文' else 'en'
+    t = TRANSLATIONS[st.session_state.lang]
+
+    st.title(t['title'])
+    role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
+
     # --- 使用者介面 ---
     if role == t['role_user']:
         df_users = get_users()
