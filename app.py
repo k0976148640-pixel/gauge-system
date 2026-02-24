@@ -4,7 +4,7 @@ from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-import streamlit.components.v1 as components  # 新增：用來注入破解鍵盤魔法的套件
+import streamlit.components.v1 as components
 
 # --- 0. 設定與連線 ---
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -290,7 +290,7 @@ def main():
     st.sidebar.markdown("---")
     font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
 
-    # 動態注入 CSS 魔法來放大字體、輸入框與選單
+    # 👇👇👇 恢復原本標準比例的 CSS 魔法 👇👇👇
     st.markdown(f"""
         <style>
         /* 一般文字、提示框 */
@@ -298,26 +298,16 @@ def main():
             font-size: {font_size}px !important;
         }}
 
-        /* 讓按鈕變厚一點，更好點擊 */
+        /* 按鈕 */
         .stButton > button {{
             font-size: {font_size}px !important;
             font-weight: bold !important;
-            min-height: {font_size * 2.5}px !important; 
         }}
 
-        /* 加大選單與輸入框本身的點擊範圍 */
-        div[data-baseweb="select"] > div, 
+        /* 輸入框與選單 */
+        div[data-baseweb="select"] *, 
         input[type="text"], input[type="password"] {{
             font-size: {font_size}px !important;
-            padding-top: 12px !important;
-            padding-bottom: 12px !important;
-        }}
-
-        /* 讓下拉選單點開後，裡面的選項上下距離稍微拉開，防誤觸 */
-        ul[data-baseweb="menu"] li {{
-            font-size: {font_size}px !important;
-            padding-top: 10px !important;
-            padding-bottom: 10px !important;
         }}
 
         /* 頁籤 Tabs */
@@ -332,6 +322,7 @@ def main():
         }}
         </style>
     """, unsafe_allow_html=True)
+    # 👆👆👆 CSS 結束 👆👆👆
 
     st.title(t['title'])
     role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
