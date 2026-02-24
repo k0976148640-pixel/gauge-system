@@ -4,6 +4,7 @@ from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
+import streamlit.components.v1 as components  # 新增：用來注入破解鍵盤魔法的套件
 
 # --- 0. 設定與連線 ---
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -287,9 +288,9 @@ def main():
 
     # 字體大小拉桿
     st.sidebar.markdown("---")
-    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=20, step=2)
+    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
 
-    # 👇👇👇 修復字體消失與防手機鍵盤跳出的 CSS 魔法 👇👇👇
+    # 動態注入 CSS 魔法來放大字體、輸入框與選單
     st.markdown(f"""
         <style>
         /* 一般文字、提示框 */
@@ -304,16 +305,12 @@ def main():
             min-height: {font_size * 2.5}px !important; 
         }}
 
-        /* 輸入框與選單 (靠 font-size 自然撐大，不亂加 padding 就不會把字擠掉) */
-        div[data-baseweb="select"] *, 
+        /* 加大選單與輸入框本身的點擊範圍 */
+        div[data-baseweb="select"] > div, 
         input[type="text"], input[type="password"] {{
             font-size: {font_size}px !important;
-        }}
-
-        /* 🚀 關鍵魔法：阻擋手機點擊下拉選單時自動跳出虛擬鍵盤 */
-        div[data-baseweb="select"] input {{
-            pointer-events: none !important; 
-            caret-color: transparent !important;
+            padding-top: 12px !important;
+            padding-bottom: 12px !important;
         }}
 
         /* 讓下拉選單點開後，裡面的選項上下距離稍微拉開，防誤觸 */
@@ -335,7 +332,6 @@ def main():
         }}
         </style>
     """, unsafe_allow_html=True)
-    # 👆👆👆 樣式設定結束 👆👆👆
 
     st.title(t['title'])
     role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
@@ -598,6 +594,23 @@ def main():
             # 6. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
+
+    # 👇👇👇 終極魔法：注入 JavaScript，強制封鎖下拉選單的手機鍵盤 👇👇👇
+    components.html(
+        """
+        <script>
+        const observer = new MutationObserver(() => {
+            const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
+            inputs.forEach(input => {
+                input.setAttribute('inputmode', 'none');  // 告訴手機：這裡不需要鍵盤
+                input.setAttribute('readonly', 'true');   // 標記為唯讀
+            });
+        });
+        observer.observe(window.parent.document.body, { childList: true, subtree: true });
+        </script>
+        """,
+        height=0, width=0
+    )
 
 
 if __name__ == "__main__":
