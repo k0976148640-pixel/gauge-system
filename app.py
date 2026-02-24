@@ -10,7 +10,6 @@ SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 SHEET_NAME = 'gauge_db'
 JSON_FILE = 'service_account.json'
 
-
 @st.cache_resource
 def connect_google_sheet():
     if os.path.exists(JSON_FILE):
@@ -22,7 +21,6 @@ def connect_google_sheet():
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME)
     return sheet
-
 
 # 安全氣囊：捕捉超速錯誤
 try:
@@ -38,7 +36,7 @@ except Exception as e:
         st.error(f"連線失敗！\n錯誤訊息: {e}")
         st.stop()
 
-# --- i18n 多語言字典 ---
+# --- i18n 多語言字典 (已完整補上所有新功能的翻譯) ---
 TRANSLATIONS = {
     'zh': {
         'title': "☁️ 雲端量具借出系統",
@@ -73,7 +71,30 @@ TRANSLATIONS = {
         'label_name': "輸入姓名", 'label_id': "量具編號", 'label_cat': "分類", 'label_spec': "規格",
         'label_note': "驗收/異常備註", 'ph_note': "若送修或報廢，請填寫原因...",
         'days_unit': "天",
-        'font_slider': "🔍 調整字體大小"
+        'font_slider': "🔍 調整字體大小",
+        # --- 新增的翻譯 ---
+        'avail_gauges': "✅ 庫存量具",
+        'msg_no_avail': "此分類目前無可借出量具。",
+        'pending_takeover': "⏳ 待品保驗收 (若急用可直接接手)",
+        'original_borrower': "原借用人",
+        'btn_takeover': "急件接手",
+        'help_takeover': "直接接手會將此量具轉移到您名下",
+        'msg_no_pending': "目前無待驗收項目。",
+        'msg_no_borrowed': "目前無借出項目。",
+        'btn_in_stock': "✅ 入庫",
+        'msg_in_stock': "已入庫！",
+        'btn_repair': "🔧 送修",
+        'confirm_repair_msg': "確定要將此量具轉為 **待修** 狀態嗎？",
+        'btn_confirm_repair': "確認送修",
+        'btn_scrap': "🗑️ 報廢",
+        'confirm_scrap_msg': "🚨 **非常確定要報廢嗎？**\n\n(這將會從總表中永久移除！)",
+        'btn_confirm_scrap': "確認執行報廢",
+        'note_before_repair': "送修前備註",
+        'label_repair_note': "修復備註",
+        'ph_repair_note': "例: 已更換零件...",
+        'btn_repair_done': "✅ 修復完成",
+        'msg_repair_done': "已恢復為可借出狀態！",
+        'msg_no_repair': "目前沒有待修的量具。"
     },
     'en': {
         'title': "☁️ Cloud Gauge System",
@@ -108,10 +129,32 @@ TRANSLATIONS = {
         'label_name': "Enter Name", 'label_id': "Gauge ID", 'label_cat': "Category", 'label_spec': "Spec",
         'label_note': "Inspection Note", 'ph_note': "If repair/scrap, enter reason...",
         'days_unit': "days",
-        'font_slider': "🔍 Adjust Font Size"
+        'font_slider': "🔍 Adjust Font Size",
+        # --- Added Translations ---
+        'avail_gauges': "✅ Available Gauges",
+        'msg_no_avail': "No available gauges in this category.",
+        'pending_takeover': "⏳ Pending Inspection (Takeover if urgent)",
+        'original_borrower': "Original Borrower",
+        'btn_takeover': "Urgent Takeover",
+        'help_takeover': "Takeover will transfer this gauge to your name",
+        'msg_no_pending': "No pending items.",
+        'msg_no_borrowed': "No borrowed items at the moment.",
+        'btn_in_stock': "✅ In Stock",
+        'msg_in_stock': "Stocked successfully!",
+        'btn_repair': "🔧 Repair",
+        'confirm_repair_msg': "Are you sure you want to change this to **Repairing** status?",
+        'btn_confirm_repair': "Confirm Repair",
+        'btn_scrap': "🗑️ Scrap",
+        'confirm_scrap_msg': "🚨 **Are you absolutely sure you want to scrap this?**\n\n(It will be permanently removed!)",
+        'btn_confirm_scrap': "Confirm Scrap",
+        'note_before_repair': "Note before repair",
+        'label_repair_note': "Repair Note",
+        'ph_repair_note': "e.g., Replaced parts...",
+        'btn_repair_done': "✅ Repair Done",
+        'msg_repair_done': "Restored to available status!",
+        'msg_no_repair': "No repairing items at the moment."
     }
 }
-
 
 # --- 1. 資料庫操作函數 (已加入快取與效能優化) ---
 
@@ -123,13 +166,11 @@ def get_gauges():
         return pd.DataFrame(columns=cols)
     return pd.DataFrame(data)
 
-
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
     return pd.DataFrame(data)
-
 
 @st.cache_data(ttl=30)
 def get_logs():
@@ -138,7 +179,6 @@ def get_logs():
     df = pd.DataFrame(data)
     if not df.empty: df = df.iloc[::-1]
     return df
-
 
 def add_user(name):
     try:
@@ -150,7 +190,6 @@ def add_user(name):
     st.cache_data.clear()
     return True
 
-
 def delete_user(name):
     try:
         cell = ws_users.find(name)
@@ -159,7 +198,6 @@ def delete_user(name):
         return True
     except:
         return False
-
 
 def add_gauge(gauge_id, category, spec):
     try:
@@ -171,7 +209,6 @@ def add_gauge(gauge_id, category, spec):
     st.cache_data.clear()
     return True
 
-
 def delete_gauge(gauge_id):
     try:
         cell = ws_gauges.find(gauge_id)
@@ -180,7 +217,6 @@ def delete_gauge(gauge_id):
         return True
     except:
         return False
-
 
 def update_status(gauge_id, action, user, note=""):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -217,7 +253,6 @@ def update_status(gauge_id, action, user, note=""):
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
 
-
 # 滿 24 小時才算 1 天
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
@@ -227,7 +262,6 @@ def calculate_days(borrow_time_str):
         return delta.days
     except:
         return 0
-
 
 # --- 2. 應用程式介面 (UI) ---
 
@@ -252,25 +286,21 @@ def main():
         p, div, span, label {{
             font-size: {font_size}px !important;
         }}
-
         /* 按鈕 */
         .stButton > button {{
             font-size: {font_size}px !important;
             font-weight: bold !important;
         }}
-
         /* 輸入框與選單 */
         div[data-baseweb="select"] *, 
         input[type="text"], input[type="password"] {{
             font-size: {font_size}px !important;
         }}
-
         /* 頁籤 Tabs */
         .stTabs [data-baseweb="tab-list"] button {{
             font-size: {font_size + 2}px !important;
             font-weight: bold !important;
         }}
-
         /* 資料表格 */
         [data-testid="stDataFrame"] * {{
             font-size: {font_size - 2}px !important;
@@ -310,7 +340,7 @@ def main():
                     pending = pd.DataFrame()
 
                 # 顯示正常可借出的
-                st.markdown("#### ✅ 庫存量具")
+                st.markdown(f"#### {t['avail_gauges']}")
                 if not available.empty:
                     for index, row in available.iterrows():
                         col1, col2 = st.columns([4, 1])
@@ -321,25 +351,25 @@ def main():
                                 update_status(row['id'], 'borrow', current_user_name)
                                 st.rerun()
                 else:
-                    st.write("此分類目前無可借出量具。")
+                    st.write(t['msg_no_avail'])
 
                 st.divider()
 
                 # 顯示待驗收但可接手的
-                st.markdown("#### ⏳ 待品保驗收 (若急用可直接接手)")
+                st.markdown(f"#### {t['pending_takeover']}")
                 if not pending.empty:
                     for index, row in pending.iterrows():
                         col1, col2 = st.columns([4, 1])
                         with col1:
                             st.warning(
-                                f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']} (原借用人: {row['current_user']})")
+                                f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']} ({t['original_borrower']}: {row['current_user']})")
                         with col2:
-                            if st.button("急件接手", key=f"takeover_{row['id']}",
-                                         help="直接接手會將此量具轉移到您名下"):
+                            if st.button(t['btn_takeover'], key=f"takeover_{row['id']}",
+                                         help=t['help_takeover']):
                                 update_status(row['id'], 'takeover', current_user_name, note=row['current_user'])
                                 st.rerun()
                 else:
-                    st.write("目前無待驗收項目。")
+                    st.write(t['msg_no_pending'])
 
             # === 歸還 ===
             with tab_return:
@@ -417,7 +447,7 @@ def main():
                     display_df = borrowed[['id', 'category', 'spec', 'current_user', 'Days']]
                     st.dataframe(display_df, use_container_width=True)
                 else:
-                    st.success("目前無借出項目")
+                    st.success(t['msg_no_borrowed'])
 
             # 2. 歸還驗收 (彈出視窗防呆版)
             with tab_verify:
@@ -432,41 +462,41 @@ def main():
 
                             c1, c2, c3 = st.columns([2, 2, 3])
                             with c1:
-                                st.write(f"**規格:** {row['spec']}")
-                                st.write(f"**歸還人:** {row['current_user']}")
+                                st.write(f"**{t['col_spec']}:** {row['spec']}")
+                                st.write(f"**{t['original_borrower']}:** {row['current_user']}")
                             with c2:
                                 note = st.text_input(t['label_note'], placeholder=t['ph_note'], key=f"note_{row['id']}")
                             with c3:
                                 st.write("")
                                 btn_c1, btn_c2, btn_c3 = st.columns(3)
 
-                                # 第一顆按鈕：入庫 (正常操作，直接按)
+                                # 第一顆按鈕：入庫
                                 with btn_c1:
-                                    if st.button("✅ 入庫", key=f"ok_{row['id']}", use_container_width=True):
+                                    if st.button(t['btn_in_stock'], key=f"ok_{row['id']}", use_container_width=True):
                                         update_status(row['id'], 'confirm_return', row['current_user'], note)
-                                        st.success("已入庫！")
+                                        st.success(t['msg_in_stock'])
                                         st.rerun()
 
-                                # 第二顆按鈕：送修 (使用 Popover 彈出確認視窗)
+                                # 第二顆按鈕：送修
                                 with btn_c2:
-                                    with st.popover("🔧 送修", use_container_width=True):
-                                        st.write("確定要將此量具轉為 **待修** 狀態嗎？")
-                                        if st.button("確認送修", key=f"conf_rep_{row['id']}", type="primary",
+                                    with st.popover(t['btn_repair'], use_container_width=True):
+                                        st.write(t['confirm_repair_msg'])
+                                        if st.button(t['btn_confirm_repair'], key=f"conf_rep_{row['id']}", type="primary",
                                                      use_container_width=True):
                                             update_status(row['id'], 'repair', row['current_user'], note)
                                             st.rerun()
 
-                                # 第三顆按鈕：報廢 (使用 Popover 彈出確認視窗)
+                                # 第三顆按鈕：報廢
                                 with btn_c3:
-                                    with st.popover("🗑️ 報廢", use_container_width=True):
-                                        st.markdown("🚨 **非常確定要報廢嗎？**\n\n(這將會從總表中永久移除！)")
-                                        if st.button("確認執行報廢", key=f"conf_scr_{row['id']}", type="primary",
+                                    with st.popover(t['btn_scrap'], use_container_width=True):
+                                        st.markdown(t['confirm_scrap_msg'])
+                                        if st.button(t['btn_confirm_scrap'], key=f"conf_scr_{row['id']}", type="primary",
                                                      use_container_width=True):
                                             update_status(row['id'], 'scrap', row['current_user'], note)
                                             st.rerun()
                             st.divider()
                 else:
-                    st.info("目前沒有待驗收的歸還申請。")
+                    st.info(t['msg_no_pending'])
 
             # 3. 待修回
             with tab_repair:
@@ -481,20 +511,20 @@ def main():
 
                             c1, c2, c3 = st.columns([2, 2, 2])
                             with c1:
-                                st.write(f"**規格:** {row['spec']}")
-                                st.write(f"**送修前備註:** {row['note']}")
+                                st.write(f"**{t['col_spec']}:** {row['spec']}")
+                                st.write(f"**{t['note_before_repair']}:** {row['note']}")
                             with c2:
-                                repair_note = st.text_input("修復備註", placeholder="例: 已更換零件...",
+                                repair_note = st.text_input(t['label_repair_note'], placeholder=t['ph_repair_note'],
                                                             key=f"rep_note_{row['id']}")
                             with c3:
                                 st.write("")
-                                if st.button("✅ 修復完成", key=f"repdn_{row['id']}", use_container_width=True):
-                                    update_status(row['id'], 'repair_done', '管理員', repair_note)
-                                    st.success("已恢復為可借出狀態！")
+                                if st.button(t['btn_repair_done'], key=f"repdn_{row['id']}", use_container_width=True):
+                                    update_status(row['id'], 'repair_done', t['role_admin'], repair_note)
+                                    st.success(t['msg_repair_done'])
                                     st.rerun()
                             st.divider()
                 else:
-                    st.info("目前沒有待修的量具。")
+                    st.info(t['msg_no_repair'])
 
             # 4. 人員
             with tab2:
@@ -502,12 +532,12 @@ def main():
                 with col_u1:
                     new_user = st.text_input(t['label_name'])
                     if st.button("Add"):
-                        if new_user and add_user(new_user): st.success("Added"); st.rerun()
+                        if new_user and add_user(new_user): st.success(t['msg_success_add']); st.rerun()
                 with col_u2:
                     df_users = get_users()
                     if not df_users.empty:
                         del_user = st.selectbox("Delete", df_users['name'].astype(str))
-                        if st.button("Delete"): delete_user(del_user); st.success("Deleted"); st.rerun()
+                        if st.button("Delete"): delete_user(del_user); st.success(t['msg_success_del']); st.rerun()
 
             # 5. 量具
             with tab3:
@@ -520,7 +550,7 @@ def main():
                     if st.button("Add Gauge"):
                         if new_id and new_cat:
                             if add_gauge(new_id, new_cat, new_spec):
-                                st.success("Added");
+                                st.success(t['msg_success_add']);
                                 st.rerun()
                             else:
                                 st.error("ID Exists")
@@ -531,12 +561,11 @@ def main():
                         options = [f"{row['id']} ({row['spec']})" for i, row in df_all.iterrows()]
                         selection = st.selectbox("Select ID", options)
                         real_id = selection.split(" ")[0]
-                        if st.button("Confirm Delete"): delete_gauge(real_id); st.success("Deleted"); st.rerun()
+                        if st.button("Confirm Delete"): delete_gauge(real_id); st.success(t['msg_success_del']); st.rerun()
 
             # 6. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
-
 
 if __name__ == "__main__":
     main()
