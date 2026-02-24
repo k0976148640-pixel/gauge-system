@@ -10,6 +10,7 @@ SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 SHEET_NAME = 'gauge_db'
 JSON_FILE = 'service_account.json'
 
+
 @st.cache_resource
 def connect_google_sheet():
     if os.path.exists(JSON_FILE):
@@ -21,6 +22,7 @@ def connect_google_sheet():
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME)
     return sheet
+
 
 # 安全氣囊：捕捉超速錯誤
 try:
@@ -36,7 +38,7 @@ except Exception as e:
         st.error(f"連線失敗！\n錯誤訊息: {e}")
         st.stop()
 
-# --- i18n 多語言字典 (已完整補上所有新功能的翻譯) ---
+# --- i18n 多語言字典 ---
 TRANSLATIONS = {
     'zh': {
         'title': "☁️ 雲端量具借出系統",
@@ -72,7 +74,6 @@ TRANSLATIONS = {
         'label_note': "驗收/異常備註", 'ph_note': "若送修或報廢，請填寫原因...",
         'days_unit': "天",
         'font_slider': "🔍 調整字體大小",
-        # --- 新增的翻譯 ---
         'avail_gauges': "✅ 庫存量具",
         'msg_no_avail': "此分類目前無可借出量具。",
         'pending_takeover': "⏳ 待品保驗收 (若急用可直接接手)",
@@ -130,7 +131,6 @@ TRANSLATIONS = {
         'label_note': "Inspection Note", 'ph_note': "If repair/scrap, enter reason...",
         'days_unit': "days",
         'font_slider': "🔍 Adjust Font Size",
-        # --- Added Translations ---
         'avail_gauges': "✅ Available Gauges",
         'msg_no_avail': "No available gauges in this category.",
         'pending_takeover': "⏳ Pending Inspection (Takeover if urgent)",
@@ -156,6 +156,7 @@ TRANSLATIONS = {
     }
 }
 
+
 # --- 1. 資料庫操作函數 (已加入快取與效能優化) ---
 
 @st.cache_data(ttl=30)
@@ -166,11 +167,13 @@ def get_gauges():
         return pd.DataFrame(columns=cols)
     return pd.DataFrame(data)
 
+
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
     return pd.DataFrame(data)
+
 
 @st.cache_data(ttl=30)
 def get_logs():
@@ -179,6 +182,7 @@ def get_logs():
     df = pd.DataFrame(data)
     if not df.empty: df = df.iloc[::-1]
     return df
+
 
 def add_user(name):
     try:
@@ -190,6 +194,7 @@ def add_user(name):
     st.cache_data.clear()
     return True
 
+
 def delete_user(name):
     try:
         cell = ws_users.find(name)
@@ -198,6 +203,7 @@ def delete_user(name):
         return True
     except:
         return False
+
 
 def add_gauge(gauge_id, category, spec):
     try:
@@ -209,6 +215,7 @@ def add_gauge(gauge_id, category, spec):
     st.cache_data.clear()
     return True
 
+
 def delete_gauge(gauge_id):
     try:
         cell = ws_gauges.find(gauge_id)
@@ -217,6 +224,7 @@ def delete_gauge(gauge_id):
         return True
     except:
         return False
+
 
 def update_status(gauge_id, action, user, note=""):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -253,6 +261,7 @@ def update_status(gauge_id, action, user, note=""):
     ws_logs.append_row([gauge_id, log_action, user, now_str])
     st.cache_data.clear()
 
+
 # 滿 24 小時才算 1 天
 def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
@@ -262,6 +271,7 @@ def calculate_days(borrow_time_str):
         return delta.days
     except:
         return 0
+
 
 # --- 2. 應用程式介面 (UI) ---
 
@@ -279,34 +289,50 @@ def main():
     st.sidebar.markdown("---")
     font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
 
-    # 動態注入 CSS 魔法來放大字體
+    # 👇👇👇 動態注入 CSS 魔法來放大字體、輸入框與選單 👇👇👇
     st.markdown(f"""
         <style>
         /* 一般文字、提示框 */
         p, div, span, label {{
             font-size: {font_size}px !important;
         }}
-        /* 按鈕 */
+
+        /* 按鈕的文字與粗細 */
         .stButton > button {{
             font-size: {font_size}px !important;
             font-weight: bold !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
         }}
-        /* 輸入框與選單 */
-        div[data-baseweb="select"] *, 
+
+        /* 🚀 加大選單與輸入框本身的「點擊範圍 (高度)」 */
+        div[data-baseweb="select"] > div, 
         input[type="text"], input[type="password"] {{
             font-size: {font_size}px !important;
+            padding-top: 12px !important;
+            padding-bottom: 12px !important;
         }}
+
+        /* 🚀 讓下拉選單點開後，裡面的「選項清單」也加寬加大，防誤觸 */
+        ul[data-baseweb="menu"] li {{
+            font-size: {font_size}px !important;
+            padding-top: 16px !important;
+            padding-bottom: 16px !important;
+        }}
+
         /* 頁籤 Tabs */
         .stTabs [data-baseweb="tab-list"] button {{
             font-size: {font_size + 2}px !important;
             font-weight: bold !important;
         }}
+
         /* 資料表格 */
         [data-testid="stDataFrame"] * {{
             font-size: {font_size - 2}px !important;
         }}
         </style>
     """, unsafe_allow_html=True)
+    # 👆👆👆 加大選單設計結束 👆👆👆
 
     st.title(t['title'])
     role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
@@ -481,7 +507,8 @@ def main():
                                 with btn_c2:
                                     with st.popover(t['btn_repair'], use_container_width=True):
                                         st.write(t['confirm_repair_msg'])
-                                        if st.button(t['btn_confirm_repair'], key=f"conf_rep_{row['id']}", type="primary",
+                                        if st.button(t['btn_confirm_repair'], key=f"conf_rep_{row['id']}",
+                                                     type="primary",
                                                      use_container_width=True):
                                             update_status(row['id'], 'repair', row['current_user'], note)
                                             st.rerun()
@@ -490,7 +517,8 @@ def main():
                                 with btn_c3:
                                     with st.popover(t['btn_scrap'], use_container_width=True):
                                         st.markdown(t['confirm_scrap_msg'])
-                                        if st.button(t['btn_confirm_scrap'], key=f"conf_scr_{row['id']}", type="primary",
+                                        if st.button(t['btn_confirm_scrap'], key=f"conf_scr_{row['id']}",
+                                                     type="primary",
                                                      use_container_width=True):
                                             update_status(row['id'], 'scrap', row['current_user'], note)
                                             st.rerun()
@@ -561,11 +589,13 @@ def main():
                         options = [f"{row['id']} ({row['spec']})" for i, row in df_all.iterrows()]
                         selection = st.selectbox("Select ID", options)
                         real_id = selection.split(" ")[0]
-                        if st.button("Confirm Delete"): delete_gauge(real_id); st.success(t['msg_success_del']); st.rerun()
+                        if st.button("Confirm Delete"): delete_gauge(real_id); st.success(
+                            t['msg_success_del']); st.rerun()
 
             # 6. 紀錄
             with tab4:
                 st.dataframe(get_logs(), use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
