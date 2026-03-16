@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta  # 👈 這裡多加了 timedelta 用來加 8 小時
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
@@ -228,7 +228,9 @@ def delete_gauge(gauge_id):
 
 
 def update_status(gauge_id, action, user, note=""):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 👇👇👇 強制轉換為台灣時間 (UTC+8) 👇👇👇
+    now_str = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+
     df = get_gauges()
     try:
         idx = df[df['id'] == gauge_id].index[0]
@@ -268,7 +270,9 @@ def calculate_days(borrow_time_str):
     if not borrow_time_str: return 0
     try:
         borrow_date = datetime.strptime(borrow_time_str, "%Y-%m-%d %H:%M:%S")
-        delta = datetime.now() - borrow_date
+        # 👇👇👇 這裡的計算基準也強制轉換為台灣時間 👇👇👇
+        tw_now = datetime.utcnow() + timedelta(hours=8)
+        delta = tw_now - borrow_date
         return delta.days
     except:
         return 0
@@ -288,9 +292,9 @@ def main():
 
     # 字體大小拉桿
     st.sidebar.markdown("---")
-    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=24, step=2)
+    font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=20, step=2)
 
-    # 👇👇👇 恢復原本標準比例的 CSS 魔法 👇👇👇
+    # 動態注入 CSS 魔法來放大字體、輸入框與選單
     st.markdown(f"""
         <style>
         /* 一般文字、提示框 */
@@ -298,13 +302,13 @@ def main():
             font-size: {font_size}px !important;
         }}
 
-        /* 按鈕 */
+        /* 讓按鈕變厚一點，更好點擊 */
         .stButton > button {{
             font-size: {font_size}px !important;
             font-weight: bold !important;
         }}
 
-        /* 輸入框與選單 */
+        /* 輸入框與選單 (維持標準框框比例) */
         div[data-baseweb="select"] *, 
         input[type="text"], input[type="password"] {{
             font-size: {font_size}px !important;
@@ -322,7 +326,6 @@ def main():
         }}
         </style>
     """, unsafe_allow_html=True)
-    # 👆👆👆 CSS 結束 👆👆👆
 
     st.title(t['title'])
     role = st.sidebar.selectbox(t['role_select'], [t['role_user'], t['role_admin']])
