@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta  # 👈 這裡多加了 timedelta 用來加 8 小時
+from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
@@ -166,21 +166,22 @@ def get_gauges():
     cols = ['id', 'category', 'spec', 'status', 'current_user', 'borrow_time', 'note']
     if not data:
         return pd.DataFrame(columns=cols)
-    return pd.DataFrame(data)
+    # 👇 關鍵修復點：用 astype(str) 強制所有資料變成文字格式，防止當機！
+    return pd.DataFrame(data).astype(str)
 
 
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
-    return pd.DataFrame(data)
+    return pd.DataFrame(data).astype(str)
 
 
 @st.cache_data(ttl=30)
 def get_logs():
     data = ws_logs.get_all_records()
     if not data: return pd.DataFrame(columns=['gauge_id', 'action', 'user', 'timestamp'])
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data).astype(str)
     if not df.empty: df = df.iloc[::-1]
     return df
 
@@ -228,8 +229,8 @@ def delete_gauge(gauge_id):
 
 
 def update_status(gauge_id, action, user, note=""):
-    # 👇👇👇 強制轉換為台灣時間 (UTC+8) 👇👇👇
-    now_str = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+    # 👇 更新最新的標準時間寫法，解決 DeprecationWarning 警告
+    now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
 
     df = get_gauges()
     try:
@@ -267,11 +268,10 @@ def update_status(gauge_id, action, user, note=""):
 
 # 滿 24 小時才算 1 天
 def calculate_days(borrow_time_str):
-    if not borrow_time_str: return 0
+    if not borrow_time_str or borrow_time_str == "nan": return 0
     try:
         borrow_date = datetime.strptime(borrow_time_str, "%Y-%m-%d %H:%M:%S")
-        # 👇👇👇 這裡的計算基準也強制轉換為台灣時間 👇👇👇
-        tw_now = datetime.utcnow() + timedelta(hours=8)
+        tw_now = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=8)
         delta = tw_now - borrow_date
         return delta.days
     except:
@@ -294,7 +294,6 @@ def main():
     st.sidebar.markdown("---")
     font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=20, step=2)
 
-    # 動態注入 CSS 魔法來放大字體、輸入框與選單
     st.markdown(f"""
         <style>
         /* 一般文字、提示框 */
