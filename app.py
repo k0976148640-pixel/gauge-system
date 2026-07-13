@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
-import streamlit.components.v1 as components
 
 # --- 0. 設定與連線 ---
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -158,7 +157,7 @@ TRANSLATIONS = {
 }
 
 
-# --- 1. 資料庫操作函數 (已加入快取與效能優化) ---
+# --- 1. 資料庫操作函數 ---
 
 @st.cache_data(ttl=30)
 def get_gauges():
@@ -166,22 +165,24 @@ def get_gauges():
     cols = ['id', 'category', 'spec', 'status', 'current_user', 'borrow_time', 'note']
     if not data:
         return pd.DataFrame(columns=cols)
-    # 👇 關鍵修復點：用 astype(str) 強制所有資料變成文字格式，防止當機！
-    return pd.DataFrame(data).astype(str)
+    # 👇 終極防護：把任何奇怪的空值填補起來，再強制全部轉成文字！
+    df = pd.DataFrame(data)
+    return df.fillna("").astype(str)
 
 
 @st.cache_data(ttl=600)
 def get_users():
     data = ws_users.get_all_records()
     if not data: return pd.DataFrame(columns=['name'])
-    return pd.DataFrame(data).astype(str)
+    df = pd.DataFrame(data)
+    return df.fillna("").astype(str)
 
 
 @st.cache_data(ttl=30)
 def get_logs():
     data = ws_logs.get_all_records()
     if not data: return pd.DataFrame(columns=['gauge_id', 'action', 'user', 'timestamp'])
-    df = pd.DataFrame(data).astype(str)
+    df = pd.DataFrame(data).fillna("").astype(str)
     if not df.empty: df = df.iloc[::-1]
     return df
 
@@ -229,7 +230,6 @@ def delete_gauge(gauge_id):
 
 
 def update_status(gauge_id, action, user, note=""):
-    # 👇 更新最新的標準時間寫法，解決 DeprecationWarning 警告
     now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
 
     df = get_gauges()
@@ -239,7 +239,6 @@ def update_status(gauge_id, action, user, note=""):
     except:
         return
 
-    # 打包更新 (Batch Update) 減少 Google API 請求次數
     if action == 'borrow':
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['已借出', user, now_str, '']])
         log_action = "借出"
@@ -266,7 +265,6 @@ def update_status(gauge_id, action, user, note=""):
     st.cache_data.clear()
 
 
-# 滿 24 小時才算 1 天
 def calculate_days(borrow_time_str):
     if not borrow_time_str or borrow_time_str == "nan": return 0
     try:
@@ -285,44 +283,20 @@ def main():
 
     if 'lang' not in st.session_state: st.session_state.lang = 'zh'
 
-    # 語言與字體調整放在側邊欄
     lang_opt = st.sidebar.radio("Language / 語言", ['中文', 'English'])
     st.session_state.lang = 'zh' if lang_opt == '中文' else 'en'
     t = TRANSLATIONS[st.session_state.lang]
 
-    # 字體大小拉桿
     st.sidebar.markdown("---")
     font_size = st.sidebar.slider(t['font_slider'], min_value=14, max_value=32, value=20, step=2)
 
     st.markdown(f"""
         <style>
-        /* 一般文字、提示框 */
-        p, div, span, label {{
-            font-size: {font_size}px !important;
-        }}
-
-        /* 讓按鈕變厚一點，更好點擊 */
-        .stButton > button {{
-            font-size: {font_size}px !important;
-            font-weight: bold !important;
-        }}
-
-        /* 輸入框與選單 (維持標準框框比例) */
-        div[data-baseweb="select"] *, 
-        input[type="text"], input[type="password"] {{
-            font-size: {font_size}px !important;
-        }}
-
-        /* 頁籤 Tabs */
-        .stTabs [data-baseweb="tab-list"] button {{
-            font-size: {font_size + 2}px !important;
-            font-weight: bold !important;
-        }}
-
-        /* 資料表格 */
-        [data-testid="stDataFrame"] * {{
-            font-size: {font_size - 2}px !important;
-        }}
+        p, div, span, label {{ font-size: {font_size}px !important; }}
+        .stButton > button {{ font-size: {font_size}px !important; font-weight: bold !important; }}
+        div[data-baseweb="select"] *, input[type="text"], input[type="password"] {{ font-size: {font_size}px !important; }}
+        .stTabs [data-baseweb="tab-list"] button {{ font-size: {font_size + 2}px !important; font-weight: bold !important; }}
+        [data-testid="stDataFrame"] * {{ font-size: {font_size - 2}px !important; }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -335,13 +309,12 @@ def main():
         if df_users.empty:
             st.warning(t['msg_no_data'])
         else:
-            user_list = df_users['name'].astype(str).tolist()
+            user_list = df_users['name'].tolist()
             current_user_name = st.selectbox(t['login_first'], user_list)
 
             tab_borrow, tab_return, tab_status = st.tabs([t['tab_borrow'], t['tab_return'], t['tab_status']])
             df_gauges = get_gauges()
 
-            # === 借出分頁 (含待驗收接手功能) ===
             with tab_borrow:
                 if not df_gauges.empty:
                     categories = [t['all_options']] + list(df_gauges['category'].unique())
@@ -357,7 +330,6 @@ def main():
                     available = pd.DataFrame()
                     pending = pd.DataFrame()
 
-                # 顯示正常可借出的
                 st.markdown(f"#### {t['avail_gauges']}")
                 if not available.empty:
                     for index, row in available.iterrows():
@@ -365,7 +337,7 @@ def main():
                         with col1:
                             st.info(f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']}")
                         with col2:
-                            if st.button(t['btn_borrow'], key=f"borrow_{row['id']}"):
+                            if st.button(t['btn_borrow'], key=f"borrow_{row['id']}", width="stretch"):
                                 update_status(row['id'], 'borrow', current_user_name)
                                 st.rerun()
                 else:
@@ -373,7 +345,6 @@ def main():
 
                 st.divider()
 
-                # 顯示待驗收但可接手的
                 st.markdown(f"#### {t['pending_takeover']}")
                 if not pending.empty:
                     for index, row in pending.iterrows():
@@ -382,17 +353,15 @@ def main():
                             st.warning(
                                 f"📍 **{row['id']}** | {row['category']} | 📏 {row['spec']} ({t['original_borrower']}: {row['current_user']})")
                         with col2:
-                            if st.button(t['btn_takeover'], key=f"takeover_{row['id']}",
-                                         help=t['help_takeover']):
+                            if st.button(t['btn_takeover'], key=f"takeover_{row['id']}", help=t['help_takeover'],
+                                         width="stretch"):
                                 update_status(row['id'], 'takeover', current_user_name, note=row['current_user'])
                                 st.rerun()
                 else:
                     st.write(t['msg_no_pending'])
 
-            # === 歸還 ===
             with tab_return:
                 df_gauges = get_gauges()
-
                 borrowers = [t['all_options']] + list(
                     df_gauges[df_gauges['status'].isin(['已借出', '待確認'])]['current_user'].unique())
                 borrowers = [x for x in borrowers if x]
@@ -426,15 +395,14 @@ def main():
                             if row['status'] == '待確認':
                                 st.write("⏳ Wait Admin")
                             elif is_owner:
-                                if st.button(t['btn_return_request'], key=f"ret_req_{row['id']}"):
+                                if st.button(t['btn_return_request'], key=f"ret_req_{row['id']}", width="stretch"):
                                     update_status(row['id'], 'return_request', current_user_name)
                                     st.rerun()
                             else:
-                                st.button(t['btn_not_owner'], key=f"dis_{row['id']}", disabled=True)
+                                st.button(t['btn_not_owner'], key=f"dis_{row['id']}", disabled=True, width="stretch")
                 else:
                     st.info(t['msg_no_data'])
 
-            # === 查詢 ===
             with tab_status:
                 st.subheader(t['tab_status'])
                 if not df_gauges.empty:
@@ -442,7 +410,7 @@ def main():
                         ['id', 'category', 'spec', 'status', 'current_user', 'borrow_time', 'note']].copy()
                     view_df.columns = [t['col_id'], t['col_cat'], t['col_spec'], t['col_status'], t['col_user'],
                                        t['col_time'], t['col_note']]
-                    st.dataframe(view_df, use_container_width=True)
+                    st.dataframe(view_df, width="stretch")
                 else:
                     st.info(t['msg_no_data'])
 
@@ -450,24 +418,21 @@ def main():
     elif role == t['role_admin']:
         st.header("Backend")
         password = st.sidebar.text_input(t['password'], type="password")
-        if password == "0000":  # 你的密碼
+        if password == "0000":
             tab1, tab_verify, tab_repair, tab2, tab3, tab4 = st.tabs(
                 [t['admin_tab_status'], t['admin_tab_verify'], t['admin_tab_repair'], t['admin_tab_users'],
-                 t['admin_tab_gauges'],
-                 t['admin_tab_logs']])
+                 t['admin_tab_gauges'], t['admin_tab_logs']])
 
-            # 1. 現況
             with tab1:
                 df_gauges = get_gauges()
                 borrowed = df_gauges[df_gauges['status'] == '已借出'].copy()
                 if not borrowed.empty:
                     borrowed['Days'] = borrowed['borrow_time'].apply(calculate_days)
                     display_df = borrowed[['id', 'category', 'spec', 'current_user', 'Days']]
-                    st.dataframe(display_df, use_container_width=True)
+                    st.dataframe(display_df, width="stretch")
                 else:
                     st.success(t['msg_no_borrowed'])
 
-            # 2. 歸還驗收 (彈出視窗防呆版)
             with tab_verify:
                 st.subheader(t['admin_tab_verify'])
                 df_gauges = get_gauges()
@@ -477,7 +442,6 @@ def main():
                     for index, row in pending_items.iterrows():
                         with st.container():
                             st.markdown(f"### 📦 {row['id']} - {row['category']}")
-
                             c1, c2, c3 = st.columns([2, 2, 3])
                             with c1:
                                 st.write(f"**{t['col_spec']}:** {row['spec']}")
@@ -488,37 +452,29 @@ def main():
                                 st.write("")
                                 btn_c1, btn_c2, btn_c3 = st.columns(3)
 
-                                # 第一顆按鈕：入庫
                                 with btn_c1:
-                                    if st.button(t['btn_in_stock'], key=f"ok_{row['id']}", use_container_width=True):
+                                    if st.button(t['btn_in_stock'], key=f"ok_{row['id']}", width="stretch"):
                                         update_status(row['id'], 'confirm_return', row['current_user'], note)
                                         st.success(t['msg_in_stock'])
                                         st.rerun()
-
-                                # 第二顆按鈕：送修
                                 with btn_c2:
-                                    with st.popover(t['btn_repair'], use_container_width=True):
+                                    with st.popover(t['btn_repair']):
                                         st.write(t['confirm_repair_msg'])
                                         if st.button(t['btn_confirm_repair'], key=f"conf_rep_{row['id']}",
-                                                     type="primary",
-                                                     use_container_width=True):
+                                                     type="primary", width="stretch"):
                                             update_status(row['id'], 'repair', row['current_user'], note)
                                             st.rerun()
-
-                                # 第三顆按鈕：報廢
                                 with btn_c3:
-                                    with st.popover(t['btn_scrap'], use_container_width=True):
+                                    with st.popover(t['btn_scrap']):
                                         st.markdown(t['confirm_scrap_msg'])
                                         if st.button(t['btn_confirm_scrap'], key=f"conf_scr_{row['id']}",
-                                                     type="primary",
-                                                     use_container_width=True):
+                                                     type="primary", width="stretch"):
                                             update_status(row['id'], 'scrap', row['current_user'], note)
                                             st.rerun()
                             st.divider()
                 else:
                     st.info(t['msg_no_pending'])
 
-            # 3. 待修回
             with tab_repair:
                 st.subheader(t['admin_tab_repair'])
                 df_gauges = get_gauges()
@@ -528,7 +484,6 @@ def main():
                     for index, row in repair_items.iterrows():
                         with st.container():
                             st.markdown(f"### 📦 {row['id']} - {row['category']}")
-
                             c1, c2, c3 = st.columns([2, 2, 2])
                             with c1:
                                 st.write(f"**{t['col_spec']}:** {row['spec']}")
@@ -538,7 +493,7 @@ def main():
                                                             key=f"rep_note_{row['id']}")
                             with c3:
                                 st.write("")
-                                if st.button(t['btn_repair_done'], key=f"repdn_{row['id']}", use_container_width=True):
+                                if st.button(t['btn_repair_done'], key=f"repdn_{row['id']}", width="stretch"):
                                     update_status(row['id'], 'repair_done', t['role_admin'], repair_note)
                                     st.success(t['msg_repair_done'])
                                     st.rerun()
@@ -546,7 +501,6 @@ def main():
                 else:
                     st.info(t['msg_no_repair'])
 
-            # 4. 人員
             with tab2:
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
@@ -556,10 +510,9 @@ def main():
                 with col_u2:
                     df_users = get_users()
                     if not df_users.empty:
-                        del_user = st.selectbox("Delete", df_users['name'].astype(str))
+                        del_user = st.selectbox("Delete", df_users['name'].tolist())
                         if st.button("Delete"): delete_user(del_user); st.success(t['msg_success_del']); st.rerun()
 
-            # 5. 量具
             with tab3:
                 col_add, col_del = st.columns(2)
                 with col_add:
@@ -570,7 +523,7 @@ def main():
                     if st.button("Add Gauge"):
                         if new_id and new_cat:
                             if add_gauge(new_id, new_cat, new_spec):
-                                st.success(t['msg_success_add']);
+                                st.success(t['msg_success_add'])
                                 st.rerun()
                             else:
                                 st.error("ID Exists")
@@ -584,25 +537,23 @@ def main():
                         if st.button("Confirm Delete"): delete_gauge(real_id); st.success(
                             t['msg_success_del']); st.rerun()
 
-            # 6. 紀錄
             with tab4:
-                st.dataframe(get_logs(), use_container_width=True)
+                st.dataframe(get_logs(), width="stretch")
 
-    # 👇👇👇 終極魔法：注入 JavaScript，強制封鎖下拉選單的手機鍵盤 👇👇👇
-    components.html(
+    # 👇 更新官方最新語法 st.html，完美封鎖手機鍵盤跳出
+    st.html(
         """
         <script>
         const observer = new MutationObserver(() => {
             const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
             inputs.forEach(input => {
-                input.setAttribute('inputmode', 'none');  // 告訴手機：這裡不需要鍵盤
-                input.setAttribute('readonly', 'true');   // 標記為唯讀
+                input.setAttribute('inputmode', 'none'); 
+                input.setAttribute('readonly', 'true');   
             });
         });
         observer.observe(window.parent.document.body, { childList: true, subtree: true });
         </script>
-        """,
-        height=0, width=0
+        """
     )
 
 
