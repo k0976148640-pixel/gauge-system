@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
+import streamlit.components.v1 as components
 
 # --- 0. 設定與連線 ---
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -165,7 +166,6 @@ def get_gauges():
     cols = ['id', 'category', 'spec', 'status', 'current_user', 'borrow_time', 'note']
     if not data:
         return pd.DataFrame(columns=cols)
-    # 👇 終極防護：把任何奇怪的空值填補起來，再強制全部轉成文字！
     df = pd.DataFrame(data)
     return df.fillna("").astype(str)
 
@@ -182,8 +182,9 @@ def get_users():
 def get_logs():
     data = ws_logs.get_all_records()
     if not data: return pd.DataFrame(columns=['gauge_id', 'action', 'user', 'timestamp'])
+
     df = pd.DataFrame(data).fillna("").astype(str)
-    if not df.empty: df = df.iloc[::-1]
+    # 👇 步驟 2：因為我們現在把最新的紀錄插在第 2 列，所以抓出來的資料不用再反轉了！
     return df
 
 
@@ -261,7 +262,12 @@ def update_status(gauge_id, action, user, note=""):
         ws_gauges.update(range_name=f'D{row_idx}:G{row_idx}', values=[['可借出', '', '', '']])
         log_action = f"修復完成 ({note})" if note else "修復完成"
 
-    ws_logs.append_row([gauge_id, log_action, user, now_str])
+    # 👇 步驟 1 & 3：改用 insert_row 把資料插在第 2 列，並加入錯誤攔截！
+    try:
+        ws_logs.insert_row([gauge_id, log_action, user, now_str], index=2)
+    except Exception as e:
+        st.error(f"寫入 Logs 紀錄時發生錯誤：{e}")
+
     st.cache_data.clear()
 
 
